@@ -108,6 +108,7 @@ for x in y:
         ('lambda **kwargs: Variable.integer(**setdefaults(kwargs, dict(show=False)))', 'lambda **kwargs: None'),
         ('a = {x for x in y}', 'a = None'),
         ('break', 'continue'),
+        ('raise Exception("foo")', 'pass')
     ]
 )
 def test_basic_mutations(original, expected):

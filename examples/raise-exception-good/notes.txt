@@ -1,0 +1,20 @@
+After commit 9c3a9a60
+=====================
+I thought about the impact of mutating 'raise' to 'pass' on my test suite. (mutant 7)
+I have a couple of tests: test_input_none and test_input_empty which should have failed because they were expecting
+exceptions to be thrown, and no exception should have been thrown.  I ran mutmut apply 7 then debugged test_input_none
+and discovered that while the original exception was suppressed, a different runtime error was encountered on line 12
+when trying to find the length of numbers, which was None for this test.
+
+While there was no externally visible difference in behavior -- an exception was thrown in either case -- the exception
+in the mutated case is being thrown for the wrong reason and I was lucky that my implementation caught it.  It would
+be a better implementation choice to throw a more specific exception than Exception, and verify the more specific
+exception in the test.
+
+Also, wrapping the test in a pytest.raises(Exception) is just plain sloppy and bad practice since it will eat any
+runtime error.
+
+After commit 710ce10
+====================
+I implemented a more specific exception (EmptyInputException) to be thrown, and modified the tests to expect it rather
+than a general Exception.

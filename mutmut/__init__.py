@@ -261,6 +261,17 @@ def argument_mutation(children, context, **_):
             children[0] = Name(c.value + 'XX', start_pos=c.start_pos, prefix=c.prefix)
             return children
 
+# Mutates 'raise' or 'raise <exception>' to 'pass'
+def raise_mutation(children, node, **_):
+    children = children[:]
+    if len(children) <= 2:
+        if len(children) == 2:
+            children.pop()
+        c = children[0]
+        children[0] = Keyword(value='pass', start_pos=node.start_pos, prefix=c.prefix)
+    return children
+
+
 
 def keyword_mutation(value, context, **_):
 
@@ -545,6 +556,7 @@ mutations_by_type = {
     'for_stmt': dict(children=loop_mutation),
     'while_stmt': dict(children=loop_mutation),
     'comp_for': dict(children=list_comprehension_mutation),
+    'raise_stmt': dict(children=raise_mutation),
 }
 
 # TODO: detect regexes and mutate them in nasty ways? Maybe mutate all strings as if they are regexes

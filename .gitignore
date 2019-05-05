@@ -52,3 +52,7 @@ docs/tri*.rst
 
 # tests
 results/
+
+# mutmut cache
+.mutmut-cache
+
