@@ -302,7 +302,7 @@ def operator_mutation(value, node, **_):
     return {
         '+': '-',
         '-': '+',
-        '*': '/',
+        '*': {'div':'/', 'exp':'**'},
         '/': '*',
         '//': '/',
         '%': '/',
@@ -567,24 +567,35 @@ def mutate_node(node, context):
             if context.exclude_line():
                 continue
 
-            new = evaluate(
+            new_evaluation = evaluate(
                 value,
                 context=context,
                 node=node,
                 value=getattr(node, 'value', None),
                 children=getattr(node, 'children', None),
             )
-            assert not callable(new)
-            if new is not None and new != old:
-                if context.should_mutate():
-                    context.number_of_performed_mutations += 1
-                    context.performed_mutation_ids.append(context.mutation_id_of_current_index)
-                    setattr(node, key, new)
-                context.index += 1
 
-            # this is just an optimization to stop early
-            if context.number_of_performed_mutations and context.mutation_id != ALL:
-                return
+            # This is a dict because lists are used for children
+            # I guess a set might be fine too, best would be a custom data struct
+            new_mutations = []
+            if type(new_evaluation) == dict:
+                print("Multiple mutations for %s", node.get_code())
+                new_mutations = new_evaluation.values()
+            else:
+                new_mutations.append(new_evaluation)
+
+            for new in new_mutations:
+                assert not callable(new)
+                if new is not None and new != old:
+                    if context.should_mutate():
+                        context.number_of_performed_mutations += 1
+                        context.performed_mutation_ids.append(context.mutation_id_of_current_index)
+                        setattr(node, key, new)
+                    context.index += 1
+
+                # this is just an optimization to stop early
+                if context.number_of_performed_mutations and context.mutation_id != ALL:
+                    return
     finally:
         context.stack.pop()
 
