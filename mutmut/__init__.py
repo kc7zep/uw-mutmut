@@ -401,6 +401,33 @@ def name_mutation(node, value, **_):
     if function_call_pattern.matches(node=node):
         return 'None'
 
+def loop_mutation(children, node, **_):
+    """
+    Mutates loop
+
+    Zero-run loop: Replaces iteration list with a blank list []
+        Surviving Test Case: Only write test case that checks for an empty loop
+        
+    """
+    # for x in y
+    # node.get_defined_names() = x
+    # node.get_testlist() = y
+
+    children = children[:]
+    empty_loop = ' []'
+
+    testlist = node.get_testlist()
+
+    for idx, c in enumerate(children):
+        if c is testlist:
+            children[idx] = Name(
+                    value=empty_loop,
+                    start_pos=testlist.start_pos)
+            break
+
+    return children
+    
+
 
 mutations_by_type = {
     'operator': dict(value=operator_mutation),
@@ -415,6 +442,7 @@ mutations_by_type = {
     'expr_stmt': dict(children=expression_mutation),
     'decorator': dict(children=decorator_mutation),
     'annassign': dict(children=expression_mutation),
+    'for_stmt': dict(children=loop_mutation),
 }
 
 # TODO: detect regexes and mutate them in nasty ways? Maybe mutate all strings as if they are regexes
