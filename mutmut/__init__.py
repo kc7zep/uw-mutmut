@@ -468,17 +468,23 @@ def one_loop_mutation(base_children, node, **_):
             # new break position is at next line, but keep the column indent
             line = last_element.end_pos[0]
             new_pos = (line, indent_col)
-            # need to put the prefix back into the first element
-            # TODO: create helper function to build these nodes
-            prefix = ' ' * indent_col
 
-            kw_node = Keyword(value='break', start_pos=new_pos, prefix=prefix)
-            nl_node = Newline(value='\n', start_pos=kw_node.end_pos)
-            break_node = PythonNode('simple_stmt', [kw_node, nl_node])
+            break_node = create_break_node(new_pos)
 
             suite.children.append(break_node)
             break
     return children
+
+def create_break_node(pos):
+    """ Creates a break node.
+        pos: (line, column)
+    """
+    # prefix needs to be added to the first element
+    prefix = ' ' * pos[1]
+    kw_node = Keyword(value='break', start_pos=pos, prefix=prefix)
+    nl_node = Newline(value='\n', start_pos=kw_node.end_pos)
+    break_node = PythonNode('simple_stmt', [kw_node, nl_node])
+    return break_node
 
 
 mutations_by_type = {
