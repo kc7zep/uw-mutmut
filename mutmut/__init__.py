@@ -2,11 +2,13 @@
 
 from __future__ import unicode_literals
 
+import copy
 import re
 import sys
+import pdb
 
 from parso import parse
-from parso.python.tree import Name, Number, Keyword
+from parso.python.tree import Name, Number, Keyword, Newline, PythonNode
 from tri.declarative import evaluate
 
 __version__ = '1.5.0'
@@ -405,28 +407,78 @@ def loop_mutation(children, node, **_):
     """
     Mutates loop
 
-    Zero-run loop: Replaces iteration list with a blank list []
-        Surviving Test Case: Only write test case that checks for an empty loop
-        
+    For loop children is structered as the nodes that make up the loop defintion (for x in y:) and a suite
+    The suite is a newline, indented, statement, then dedent and naother newline
     """
     # for x in y
     # node.get_defined_names() = x
     # node.get_testlist() = y
 
-    children = children[:]
+    mutations = {}
+    # need to deep copy inside subfuctions, otherwise both mutations applied at same time
+    # but the deep copy breaks that new != old check in mutate_node, will throw the source assert in mutate()
+    mutations['zero'] = zero_loop_mutation(children, node, **_)
+    mutations['one'] = one_loop_mutation(children, node, **_)
+
+    return mutations
+
+
+def zero_loop_mutation(base_children, node, **_):
+    """
+    Zero-run loop: Replaces iteration list with a blank list []
+        Surviving Test Case: Only write test case that checks for an empty loop, eg input loop = []
+        Could also do this by appending a break as first element
+    """
+    children = copy.deepcopy(base_children)
     empty_loop = ' []'
 
     testlist = node.get_testlist()
 
     for idx, c in enumerate(children):
-        if c is testlist:
+        if c.start_pos == testlist.start_pos: # deepcopy messes the comparision, use position instead
             children[idx] = Name(
                     value=empty_loop,
                     start_pos=testlist.start_pos)
             break
 
     return children
-    
+
+def one_loop_mutation(base_children, node, **_):
+    """
+    One-run loop: Adds break statement at the end, so that always gets hit on first run (excluding early return)
+        keyword mutation handles replacing continues with break
+        Surviving Test Case: test with intended single run loop, eg for x in [0]
+    """
+    children = copy.deepcopy(base_children)
+
+    for idx, c in enumerate(children):
+        # suite is the actual body of the loop
+        if c.type == 'suite':
+            # add a break
+            suite = c
+            suite_children = c.children[1:] # assume first element in suite is a newline
+            indent_col = suite_children[0].start_pos[1]
+
+            last_element = c.get_last_leaf()
+            if last_element.type != 'newline':
+                # I'm assuming the last element will always be newline.
+                # If it isn't, how on earth is the next line written?
+                # Maybe an edge case at the very end of the file?
+                return None
+            # new break position is at next line, but keep the column indent
+            line = last_element.end_pos[0]
+            new_pos = (line, indent_col)
+            # need to put the prefix back into the first element
+            # TODO: create helper function to build these nodes
+            prefix = ' ' * indent_col
+
+            kw_node = Keyword(value='break', start_pos=new_pos, prefix=prefix)
+            nl_node = Newline(value='\n', start_pos=kw_node.end_pos)
+            break_node = PythonNode('simple_stmt', [kw_node, nl_node])
+
+            suite.children.append(break_node)
+            break
+    return children
 
 
 mutations_by_type = {
