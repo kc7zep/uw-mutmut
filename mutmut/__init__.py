@@ -417,13 +417,16 @@ def loop_mutation(children, node, **_):
     mutations = {}
     # need to deep copy inside subfuctions, otherwise both mutations applied at same time
     # but the deep copy breaks that new != old check in mutate_node, will throw the source assert in mutate()
-    mutations['zero'] = zero_loop_mutation(children, node, **_)
+    if node.type == 'for_stmt':
+        mutations['zero'] = zero_loop_mutation_for(children, node, **_)
+    elif node.type == 'while_stmt':
+        mutations['zero'] = zero_loop_mutation_while(children, node, **_)
     mutations['one'] = one_loop_mutation(children, node, **_)
 
     return mutations
 
 
-def zero_loop_mutation(base_children, node, **_):
+def zero_loop_mutation_for(base_children, node, **_):
     """
     Zero-run loop: Replaces iteration list with a blank list []
         Surviving Test Case: Only write test case that checks for an empty loop, eg input loop = []
@@ -440,6 +443,23 @@ def zero_loop_mutation(base_children, node, **_):
                     value=empty_loop,
                     start_pos=testlist.start_pos)
             break
+
+    return children
+
+def zero_loop_mutation_while(base_children, node, **_):
+    """
+    Zero-run loop: Adds break statement as first item in loop body
+        Surviving Test Case: Only write test case that checks for an empty loop, eg input loop = []
+        TODO: Consider merging the for loop mutation with this one
+    """
+    children = copy.deepcopy(base_children)
+    suite = get_loop_body(children)
+
+    # assume 0th element of loop body is a newline
+    # assume 1st element of loop body is actual start of function, with proper indentation
+    # it seems that line positions are pointless?!
+    break_node = create_break_node(suite[1].start_pos)
+    suite.insert(1, break_node)
 
     return children
 
@@ -475,6 +495,13 @@ def one_loop_mutation(base_children, node, **_):
             break
     return children
 
+def get_loop_body(children):
+    # this may also be children[-1]
+    for idx, c in enumerate(children):
+        if c.type == 'suite':
+            return c.children
+    return None
+
 def create_break_node(pos):
     """ Creates a break node.
         pos: (line, column)
@@ -501,6 +528,7 @@ mutations_by_type = {
     'decorator': dict(children=decorator_mutation),
     'annassign': dict(children=expression_mutation),
     'for_stmt': dict(children=loop_mutation),
+    'while_stmt': dict(children=loop_mutation),
 }
 
 # TODO: detect regexes and mutate them in nasty ways? Maybe mutate all strings as if they are regexes
@@ -637,7 +665,7 @@ def mutate_node(node, context):
             # I guess a set might be fine too, best would be a custom data struct
             new_mutations = []
             if type(new_evaluation) == dict:
-                print("Multiple mutations for %s", node.get_code())
+                #print("Multiple mutations for %s", node.get_code())
                 new_mutations = new_evaluation.values()
             else:
                 new_mutations.append(new_evaluation)
