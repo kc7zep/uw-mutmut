@@ -383,6 +383,28 @@ def decorator_mutation(children, **_):
     assert children[-1].type == 'newline'
     return children[-1:]
 
+def subscript_mutation(node, children, **_):
+    assert node.type == 'subscript'
+    splice_operator_index = -1
+    for i in range(0, len(children)):
+        child_node = children[i]
+        if child_node.type == 'operator' and child_node.value == ':':
+            assert splice_operator_index == -1
+            splice_operator_index = i
+
+    if splice_operator_index == -1:
+        return children
+    
+    # x[:a] => x[:]
+    if len(children) == 2 and splice_operator_index == 0:
+        return children[0:1]
+    
+    # x[a:b] => x[:b] and x[a:] => x[:]
+    if len(children) >= 2:
+        return children[splice_operator_index:]
+
+    # don't mutate x[:]
+    return children
 
 array_subscript_pattern = ASTPattern("""
 _name[_any]
@@ -636,6 +658,7 @@ mutations_by_type = {
     'comp_for': dict(children=list_comprehension_mutation),
     'raise_stmt': dict(children=raise_mutation),
     'try_stmt': dict(children=try_stmt_mutation),
+    'subscript': dict(children=subscript_mutation),
 }
 
 # TODO: detect regexes and mutate them in nasty ways? Maybe mutate all strings as if they are regexes
