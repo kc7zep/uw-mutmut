@@ -70,7 +70,6 @@ for x in y:
         ('1+1', '2-2'),
         ('1', '2'),
         ('1-1', '2+2'),
-        ('1*1', '2/2'),
         ('1/1', '2*2'),
         # ('1.0', '1.0000000000000002'),  # using numpy features
         ('1.0', '2.0'),
@@ -114,6 +113,35 @@ for x in y:
 def test_basic_mutations(original, expected):
     actual, number_of_performed_mutations = mutate(Context(source=original, mutation_id=ALL, dict_synonyms=['Struct', 'FooBarDict']))
     assert actual == expected, 'Performed %s mutations for original "%s"' % (number_of_performed_mutations, original)
+
+@pytest.mark.parametrize(
+    'original, expected', [
+        ('1*1', ['1/1', '1**1']),
+        ('for x in y:\n    foo(x)\n', [
+            'for x in []:\n    foo(x)\n',
+            'for x in y:\n    foo(x)\n    break\n',
+            ]),
+        ('while x:\n    foo(x)\n', [
+            'while x:\n    break\n    foo(x)\n',
+            'while x:\n    foo(x)\n    break\n',
+            ]),
+    ]
+)
+
+def test_basic_multiple_mutations(original, expected):
+    """
+    This test is for multiple mutations per operator. 
+    These mutations will clobber each other in the ALL mutations test.
+    Because other types of mutation might also happen, we check for each expected mutation being in the list of actual mutations.
+    """
+    actual = list_mutations(Context(source=original))
+    actual_mutation_code = []
+    for m in actual:
+        mutation, num_mutations = mutate(Context(source=original, mutation_id=m))
+        assert num_mutations == 1
+        actual_mutation_code.append(mutation)
+    for m in expected:
+        assert m in actual_mutation_code
 
 
 @pytest.mark.skipif(sys.version_info < (3, 0), reason="Don't check Python 3 syntax in Python 2")
