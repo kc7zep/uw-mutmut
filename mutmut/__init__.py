@@ -18,9 +18,10 @@ class MutationID(object):
         self.line = line
         self.index = index
         self.line_number = line_number
+        self.mutation_name = "none"
 
     def __repr__(self):
-        return 'MutationID(line="%s", index=%s, line_number=%s)' % (self.line, self.index, self.line_number)
+        return 'MutationID(line="%s", index=%s, line_number=%s, mutation_name=%s)' % (self.line, self.index, self.line_number, self.mutation_name)
 
     def __eq__(self, other):
         return (self.line, self.index, self.line_number) == (other.line, other.index, other.line_number)
@@ -285,7 +286,6 @@ import_from_star_pattern = ASTPattern("""
 from _name import *
 #                 ^
 """)
-
 
 def operator_mutation(value, node, **_):
     if import_from_star_pattern.matches(node=node):
@@ -690,13 +690,16 @@ def mutate_node(node, context):
                 if new is not None and new != old:
                     if context.should_mutate():
                         context.number_of_performed_mutations += 1
-                        context.performed_mutation_ids.append(context.mutation_id_of_current_index)
+                        mutation_id = context.mutation_id_of_current_index
+                        mutation_id.mutation_name = node.type
+                        context.performed_mutation_ids.append(mutation_id)
                         setattr(node, key, new)
                     context.index += 1
 
                 # this is just an optimization to stop early
                 if context.number_of_performed_mutations and context.mutation_id != ALL:
                     return
+
     finally:
         context.stack.pop()
 

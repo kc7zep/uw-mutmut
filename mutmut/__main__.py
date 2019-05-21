@@ -217,6 +217,7 @@ DEFAULT_TESTS_DIR = 'tests/:test/'
 @click.option('--untested-policy', type=click.Choice(['ignore', 'skipped', 'error', 'failure']), default='ignore')
 @click.option('--pre-mutation')
 @click.option('--post-mutation')
+@click.option('--show-mutation-name', is_flag=True, default=False, help='Include mutation name in junitxml and show output')
 @config_from_setup_cfg(
     dict_synonyms='',
     runner='python -m pytest -x',
@@ -229,7 +230,7 @@ def climain(command, argument, argument2, paths_to_mutate, backup, runner, tests
             test_time_multiplier, test_time_base,
             swallow_output, use_coverage, dict_synonyms, cache_only, version,
             suspicious_policy, untested_policy, pre_mutation, post_mutation,
-            use_patch_file):
+            use_patch_file, show_mutation_name):
     """
 commands:\n
     run [mutation id]\n
@@ -251,14 +252,14 @@ commands:\n
                   tests_dir, test_time_multiplier, test_time_base,
                   swallow_output, use_coverage, dict_synonyms, cache_only,
                   version, suspicious_policy, untested_policy, pre_mutation,
-                  post_mutation, use_patch_file))
+                  post_mutation, use_patch_file, show_mutation_name))
 
 
 def main(command, argument, argument2, paths_to_mutate, backup, runner, tests_dir,
          test_time_multiplier, test_time_base,
          swallow_output, use_coverage, dict_synonyms, cache_only, version,
          suspicious_policy, untested_policy, pre_mutation, post_mutation,
-         use_patch_file):
+         use_patch_file, show_mutation_name):
     """return exit code, after performing an mutation test run.
 
     :return: the exit code from executing the mutation tests
@@ -282,11 +283,11 @@ def main(command, argument, argument2, paths_to_mutate, backup, runner, tests_di
 
     if command in ('show', 'diff'):
         if not argument:
-            print_result_cache()
+            print_result_cache(show_mutation_name=show_mutation_name)
             return 0
 
         if argument == 'all':
-            print_result_cache(show_diffs=True, dict_synonyms=dict_synonyms, print_only_filename=argument2)
+            print_result_cache(show_diffs=True, dict_synonyms=dict_synonyms, print_only_filename=argument2, show_mutation_name=show_mutation_name)
             return 0
 
         print(get_unified_diff(argument, dict_synonyms))
@@ -296,11 +297,11 @@ def main(command, argument, argument2, paths_to_mutate, backup, runner, tests_di
         raise FileNotFoundError('No .coverage file found. You must generate a coverage file to use this feature.')
 
     if command == 'results':
-        print_result_cache()
+        print_result_cache(show_mutation_name=show_mutation_name)
         return 0
 
     if command == 'junitxml':
-        print_result_cache_junitxml(dict_synonyms, suspicious_policy, untested_policy)
+        print_result_cache_junitxml(dict_synonyms, suspicious_policy, untested_policy, show_mutation_name=show_mutation_name)
         return 0
 
     if command == 'apply':

@@ -380,3 +380,29 @@ def test_pre_and_post_mutation_hook(filesystem):
     assert "pre mutation stub" in result.output
     assert "post mutation stub" in result.output
     assert result.output.index("pre mutation stub") < result.output.index("post mutation stub")
+
+def test_results_show_mutation_name(filesystem):
+    with open(os.path.join(str(filesystem), "tests", "test_foo.py"), 'w') as f:
+        f.write(test_file_contents.replace('assert foo(2, 2) is False\n', ''))
+
+    result = CliRunner().invoke(climain, ['run', '--paths-to-mutate=foo.py', "--test-time-base=15.0"], catch_exceptions=False)
+    print(repr(result.output))
+    assert result.exit_code == 2
+
+    result = CliRunner().invoke(climain, ['results', '--show-mutation-name'], catch_exceptions=False)
+    print(repr(result.output))
+    assert result.exit_code == 0
+    assert result.output.strip() == u"""
+To apply a mutant on disk:
+    mutmut apply <id>
+
+To show a mutant:
+    mutmut show <id>
+
+
+Survived 🙁 (1)
+
+---- foo.py (1) ----
+
+1 <operator>
+""".strip()
