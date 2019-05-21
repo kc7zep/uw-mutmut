@@ -513,6 +513,23 @@ def create_break_node(pos):
     break_node = PythonNode('simple_stmt', [kw_node, nl_node])
     return break_node
 
+def list_comprehension_mutation(children, node, **_):
+    # for exprlist in or_test [comp_iter]
+    # find in, everything asfter that is the list
+    children = children[:]
+    list_idx = None
+    pdb.set_trace()
+    for idx, child in enumerate(children):
+        if child.type == 'keyword' and child.value == 'in':
+            list_idx = idx + 1
+            break
+    if not list_idx:
+        return None
+    # assuming the list is of type Name
+    empty_list = Name(value=' []', start_pos=children[list_idx].start_pos)
+    children[list_idx] = empty_list
+    return children[:list_idx+1]
+
 
 mutations_by_type = {
     'operator': dict(value=operator_mutation),
@@ -529,6 +546,7 @@ mutations_by_type = {
     'annassign': dict(children=expression_mutation),
     'for_stmt': dict(children=loop_mutation),
     'while_stmt': dict(children=loop_mutation),
+    'comp_for': dict(children=list_comprehension_mutation),
 }
 
 # TODO: detect regexes and mutate them in nasty ways? Maybe mutate all strings as if they are regexes
