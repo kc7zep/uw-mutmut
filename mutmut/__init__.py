@@ -518,7 +518,6 @@ def list_comprehension_mutation(children, node, **_):
     # find in, everything asfter that is the list
     children = children[:]
     list_idx = None
-    pdb.set_trace()
     for idx, child in enumerate(children):
         if child.type == 'keyword' and child.value == 'in':
             list_idx = idx + 1
