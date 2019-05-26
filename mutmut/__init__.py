@@ -2,11 +2,12 @@
 
 from __future__ import unicode_literals
 
+import copy
 import re
 import sys
 
 from parso import parse
-from parso.python.tree import Name, Number, Keyword
+from parso.python.tree import Name, Number, Keyword, Newline, PythonNode
 from tri.declarative import evaluate
 
 __version__ = '1.5.0'
@@ -302,7 +303,7 @@ def operator_mutation(value, node, **_):
     return {
         '+': '-',
         '-': '+',
-        '*': '/',
+        '*': {'div':'/', 'exp':'**'},
         '/': '*',
         '//': '/',
         '%': '/',
@@ -401,6 +402,132 @@ def name_mutation(node, value, **_):
     if function_call_pattern.matches(node=node):
         return 'None'
 
+def loop_mutation(children, node, **_):
+    """
+    Mutates loop
+
+    For loop children is structured as the nodes that make up the loop defintion (for x in y:) and a suite
+    The suite is a newline, indented, statement, then dedent and another newline
+    """
+    # for x in y
+    # node.get_defined_names() = x
+    # node.get_testlist() = y
+
+    mutations = {}
+    # need to deep copy inside subfunctions, otherwise both mutations applied at same time
+    # but the deep copy breaks that new != old check in mutate_node, will throw the source assert in mutate()
+    if node.type == 'for_stmt':
+        mutations['zero'] = zero_loop_mutation_for(children, node, **_)
+    elif node.type == 'while_stmt':
+        mutations['zero'] = zero_loop_mutation_while(children, node, **_)
+    mutations['one'] = one_loop_mutation(children, node, **_)
+
+    return mutations
+
+
+def zero_loop_mutation_for(base_children, node, **_):
+    """
+    Zero-run loop: Replaces iteration list with a blank list []
+        Surviving Test Case: Only write test case that checks for an empty loop, eg input loop = []
+        Could also do this by appending a break as first element
+    """
+    children = copy.deepcopy(base_children)
+    empty_loop = ' []'
+
+    testlist = node.get_testlist()
+
+    for idx, c in enumerate(children):
+        if c.start_pos == testlist.start_pos: # deepcopy messes the comparision, use position instead
+            children[idx] = Name(
+                    value=empty_loop,
+                    start_pos=testlist.start_pos)
+            break
+
+    return children
+
+def zero_loop_mutation_while(base_children, node, **_):
+    """
+    Zero-run loop: Adds break statement as first item in loop body
+        Surviving Test Case: Only write test case that checks for an empty loop, eg input loop = []
+        TODO: Consider merging the for loop mutation with this one
+    """
+    children = copy.deepcopy(base_children)
+    suite = get_loop_body(children)
+
+    # assume 0th element of loop body is a newline
+    # assume 1st element of loop body is actual start of function, with proper indentation
+    # it seems that line positions are pointless?!
+    break_node = create_break_node(suite[1].start_pos)
+    suite.insert(1, break_node)
+
+    return children
+
+def one_loop_mutation(base_children, node, **_):
+    """
+    One-run loop: Adds break statement at the end, so that always gets hit on first run (excluding early return)
+        keyword mutation handles replacing continues with break
+        Surviving Test Case: test with intended single run loop, eg for x in [0]
+    """
+    children = copy.deepcopy(base_children)
+
+    for idx, c in enumerate(children):
+        # suite is the actual body of the loop
+        if c.type == 'suite':
+            # add a break
+            suite = c
+            suite_children = c.children[1:] # assume first element in suite is a newline
+            indent_col = suite_children[0].start_pos[1]
+
+            last_element = c.get_last_leaf()
+            if last_element.type != 'newline':
+                # I'm assuming the last element will always be newline.
+                # If it isn't, how on earth is the next line written?
+                # Maybe an edge case at the very end of the file?
+                return None
+            # new break position is at next line, but keep the column indent
+            line = last_element.end_pos[0]
+            new_pos = (line, indent_col)
+
+            break_node = create_break_node(new_pos)
+
+            suite.children.append(break_node)
+            break
+    return children
+
+def get_loop_body(children):
+    # this may also be children[-1]
+    for idx, c in enumerate(children):
+        if c.type == 'suite':
+            return c.children
+    return None
+
+def create_break_node(pos):
+    """ Creates a break node.
+        pos: (line, column)
+    """
+    # prefix needs to be added to the first element
+    prefix = ' ' * pos[1]
+    kw_node = Keyword(value='break', start_pos=pos, prefix=prefix)
+    nl_node = Newline(value='\n', start_pos=kw_node.end_pos)
+    break_node = PythonNode('simple_stmt', [kw_node, nl_node])
+    return break_node
+
+def list_comprehension_mutation(children, node, **_):
+    # for exprlist in or_test [comp_iter]
+    # find in, everything asfter that is the list
+    children = children[:]
+    list_idx = None
+    for idx, child in enumerate(children):
+        if child.type == 'keyword' and child.value == 'in':
+            list_idx = idx + 1
+            break
+    if not list_idx:
+        return None
+    # assuming the list is of type Name
+    empty_list = Name(value=' []', start_pos=children[list_idx].start_pos)
+    children[list_idx] = empty_list
+    return children[:list_idx+1]
+
 
 mutations_by_type = {
     'operator': dict(value=operator_mutation),
@@ -415,6 +542,9 @@ mutations_by_type = {
     'expr_stmt': dict(children=expression_mutation),
     'decorator': dict(children=decorator_mutation),
     'annassign': dict(children=expression_mutation),
+    'for_stmt': dict(children=loop_mutation),
+    'while_stmt': dict(children=loop_mutation),
+    'comp_for': dict(children=list_comprehension_mutation),
 }
 
 # TODO: detect regexes and mutate them in nasty ways? Maybe mutate all strings as if they are regexes
@@ -539,24 +669,34 @@ def mutate_node(node, context):
             if context.exclude_line():
                 continue
 
-            new = evaluate(
+            new_evaluation = evaluate(
                 value,
                 context=context,
                 node=node,
                 value=getattr(node, 'value', None),
                 children=getattr(node, 'children', None),
             )
-            assert not callable(new)
-            if new is not None and new != old:
-                if context.should_mutate():
-                    context.number_of_performed_mutations += 1
-                    context.performed_mutation_ids.append(context.mutation_id_of_current_index)
-                    setattr(node, key, new)
-                context.index += 1
 
-            # this is just an optimization to stop early
-            if context.number_of_performed_mutations and context.mutation_id != ALL:
-                return
+            # This is a dict because lists are used for children
+            # I guess a set might be fine too, best would be a custom data struct
+            new_mutations = []
+            if type(new_evaluation) == dict:
+                new_mutations = new_evaluation.values()
+            else:
+                new_mutations.append(new_evaluation)
+
+            for new in new_mutations:
+                assert not callable(new)
+                if new is not None and new != old:
+                    if context.should_mutate():
+                        context.number_of_performed_mutations += 1
+                        context.performed_mutation_ids.append(context.mutation_id_of_current_index)
+                        setattr(node, key, new)
+                    context.index += 1
+
+                # this is just an optimization to stop early
+                if context.number_of_performed_mutations and context.mutation_id != ALL:
+                    return
     finally:
         context.stack.pop()
 
