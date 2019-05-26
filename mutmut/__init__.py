@@ -5,7 +5,6 @@ from __future__ import unicode_literals
 import copy
 import re
 import sys
-import pdb
 
 from parso import parse
 from parso.python.tree import Name, Number, Keyword, Newline, PythonNode
@@ -407,15 +406,15 @@ def loop_mutation(children, node, **_):
     """
     Mutates loop
 
-    For loop children is structered as the nodes that make up the loop defintion (for x in y:) and a suite
-    The suite is a newline, indented, statement, then dedent and naother newline
+    For loop children is structured as the nodes that make up the loop defintion (for x in y:) and a suite
+    The suite is a newline, indented, statement, then dedent and another newline
     """
     # for x in y
     # node.get_defined_names() = x
     # node.get_testlist() = y
 
     mutations = {}
-    # need to deep copy inside subfuctions, otherwise both mutations applied at same time
+    # need to deep copy inside subfunctions, otherwise both mutations applied at same time
     # but the deep copy breaks that new != old check in mutate_node, will throw the source assert in mutate()
     if node.type == 'for_stmt':
         mutations['zero'] = zero_loop_mutation_for(children, node, **_)
@@ -682,7 +681,6 @@ def mutate_node(node, context):
             # I guess a set might be fine too, best would be a custom data struct
             new_mutations = []
             if type(new_evaluation) == dict:
-                #print("Multiple mutations for %s", node.get_code())
                 new_mutations = new_evaluation.values()
             else:
                 new_mutations.append(new_evaluation)
