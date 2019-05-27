@@ -430,10 +430,10 @@ def subscript_mutation_a_b(children, splice_operator_index):
 def subscript_mutation_a_blank(children, splice_operator_index):
     mutations = {}
 
-    # x[a:] => x[a:b]
+    # x[a:] => x[a:-1]
     new_children = copy.deepcopy(children)
     new_children = append_negative_1(new_children)
-    mutations["x[a:] => x[a:b]"] = new_children
+    mutations["x[a:] => x[a:-1]"] = new_children
 
     # x[a:] => x[:]
     new_children = copy.deepcopy(children)
@@ -444,10 +444,10 @@ def subscript_mutation_a_blank(children, splice_operator_index):
 def subscript_mutation_blank_b(children, splice_operator_index):
     mutations = {}
 
-    # x[:b] => x[a:b]
+    # x[:b] => x[1:b]
     new_children = copy.deepcopy(children)
     new_children = prepend_1(new_children)
-    mutations["x[:b] => x[a:b]"] = new_children
+    mutations["x[:b] => x[1:b]"] = new_children
 
     # x[:b] => x[:]
     new_children = copy.deepcopy(children)
@@ -458,21 +458,21 @@ def subscript_mutation_blank_b(children, splice_operator_index):
 def subscript_mutation_blank_blank(children, splice_operator_index):
     mutations = {}
 
-    # x[:] => x[a:]
+    # x[:] => x[1:]
     new_children = copy.deepcopy(children)
     new_children = prepend_1(new_children)
-    mutations["x[:] => x[a:]"] = new_children
+    mutations["x[:] => x[1:]"] = new_children
 
-    # x[:] => x[:b]
+    # x[:] => x[:-1]
     new_children = copy.deepcopy(children)
     new_children = append_negative_1(new_children)
-    mutations["x[:] => x[:b]"] = new_children
+    mutations["x[:] => x[:-1]"] = new_children
 
-    # x[:] => x[a:b]
+    # x[:] => x[1:-1]
     new_children = copy.deepcopy(children)
     new_children = prepend_1(new_children)
     new_children = append_negative_1(new_children)
-    mutations["x[:] => x[a:b]"] = new_children
+    mutations["x[:] => x[1:-1]"] = new_children
 
     return mutations
 
