@@ -108,6 +108,7 @@ for x in y:
         ('lambda **kwargs: Variable.integer(**setdefaults(kwargs, dict(show=False)))', 'lambda **kwargs: None'),
         ('a = {x for x in y}', 'a = None'),
         ('break', 'continue'),
+        ('raise Exception("foo")', 'pass')
     ]
 )
 def test_basic_mutations(original, expected):
@@ -365,3 +366,35 @@ __all__ = [
 ]
 """
     assert mutate(Context(source=source)) == (source, 0)
+
+
+@pytest.mark.parametrize(
+    'original, expected', [
+        ('try:\n    pass\nfinally:\n    a=4\n',
+            ['try:\n    pass\nfinally: pass\n']),
+
+        ('try:\n    pass\nexcept Exception as e:\n    a=4\n',
+            ['try:\n    pass\nexcept Exception as e: pass\n',
+             'try:\n    pass\nexcept Exception as e: raise\n']),
+
+        ('try:\n    pass\nexcept FooException as e:\n    a=4\nelse:\n    a=5\nfinally:\n    a=6\n',
+         ['try:\n    pass\nexcept FooException as e: pass\nelse:\n    a=5\nfinally:\n    a=6\n',
+          'try:\n    pass\nexcept FooException as e: raise\nelse:\n    a=5\nfinally:\n    a=6\n',
+          'try:\n    pass\nexcept FooException as e:\n    a=4\nelse: pass\nfinally:\n    a=6\n',
+          'try:\n    pass\nexcept FooException as e:\n    a=4\nelse:\n    a=5\nfinally: pass\n'
+          ]),
+    ]
+)
+
+def test_try_block_mutations(original, expected):
+    """
+    Body copied from test_basic_multiple_mutations
+    """
+    actual = list_mutations(Context(source=original))
+    actual_mutation_code = []
+    for m in actual:
+        mutation, num_mutations = mutate(Context(source=original, mutation_id=m))
+        assert num_mutations == 1
+        actual_mutation_code.append(mutation)
+    for m in expected:
+        assert m in actual_mutation_code

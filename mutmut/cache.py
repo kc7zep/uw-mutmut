@@ -64,6 +64,7 @@ class Line(db.Entity):
 class Mutant(db.Entity):
     line = Required(Line)
     index = Required(int)
+    mutation_name = Required(text_type)
     tested_against_hash = Optional(text_type, autostrip=False)
     status = Required(text_type, autostrip=False)  # really an enum of mutant_statuses
 
@@ -134,7 +135,7 @@ def get_apply_line(mutant):
 
 @init_db
 @db_session
-def print_result_cache(show_diffs=False, dict_synonyms=None, print_only_filename=None):
+def print_result_cache(show_diffs=False, dict_synonyms=None, print_only_filename=None, show_mutation_name=False):
     print('To apply a mutant on disk:')
     print('    mutmut apply <id>')
     print('')
@@ -156,10 +157,17 @@ def print_result_cache(show_diffs=False, dict_synonyms=None, print_only_filename
                 print('')
                 if show_diffs:
                     for x in mutants:
-                        print('# mutant %s' % x.id)
+                        if show_mutation_name:
+                            print('# mutant %s <%s>' % (x.id, x.mutation_name))
+                        else:
+                            print('# mutant %s' % x.id)
                         print(get_unified_diff(x.id, dict_synonyms))
                 else:
-                    print(', '.join([str(x.id) for x in mutants]))
+                    if show_mutation_name:
+                        print(', '.join(["{} <{}>".format(str(x.id), x.mutation_name) for x in mutants]))
+                    else:
+                        print(', '.join([str(x.id) for x in mutants]))
+
 
     print_stuff('Timed out ⏰', select(x for x in Mutant if x.status == BAD_TIMEOUT))
     print_stuff('Suspicious 🤔', select(x for x in Mutant if x.status == OK_SUSPICIOUS))
@@ -192,12 +200,16 @@ def get_unified_diff(argument, dict_synonyms):
 
 @init_db
 @db_session
-def print_result_cache_junitxml(dict_synonyms, suspicious_policy, untested_policy):
+def print_result_cache_junitxml(dict_synonyms, suspicious_policy, untested_policy, show_mutation_name=False):
     test_cases = []
     mutant_list = list(select(x for x in Mutant))
     for filename, mutants in groupby(mutant_list, key=lambda x: x.line.sourcefile.filename):
         for mutant in mutants:
-            tc = TestCase("Mutant #{}".format(mutant.id), file=filename, line=mutant.line.line_number, stdout=mutant.line.line)
+            if show_mutation_name:
+                tc = TestCase("Mutant #{} <{}>".format(mutant.id, mutant.mutation_name), file=filename, line=mutant.line.line_number, stdout=mutant.line.line)
+            else:
+                tc = TestCase("Mutant #{}".format(mutant.id), file=filename, line=mutant.line.line_number, stdout=mutant.line.line)
+
             if mutant.status == BAD_SURVIVED:
                 tc.add_failure_info(message=mutant.status, output=get_unified_diff(mutant.id, dict_synonyms))
             if mutant.status == BAD_TIMEOUT:
@@ -291,7 +303,8 @@ def register_mutants(mutations_by_file):
         for mutation_id in mutation_ids:
             line = Line.get(sourcefile=sourcefile, line=mutation_id.line, line_number=mutation_id.line_number)
             assert line is not None
-            get_or_create(Mutant, line=line, index=mutation_id.index, defaults=dict(status=UNTESTED))
+            get_or_create(Mutant, line=line, index=mutation_id.index, mutation_name = mutation_id.mutation_name,
+                          defaults=dict(status=UNTESTED, mutation_name='none'))
 
 
 @init_db

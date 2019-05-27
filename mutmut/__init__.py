@@ -18,9 +18,10 @@ class MutationID(object):
         self.line = line
         self.index = index
         self.line_number = line_number
+        self.mutation_name = "none"
 
     def __repr__(self):
-        return 'MutationID(line="%s", index=%s, line_number=%s)' % (self.line, self.index, self.line_number)
+        return 'MutationID(line="%s", index=%s, line_number=%s, mutation_name=%s)' % (self.line, self.index, self.line_number, self.mutation_name)
 
     def __eq__(self, other):
         return (self.line, self.index, self.line_number) == (other.line, other.index, other.line_number)
@@ -260,6 +261,17 @@ def argument_mutation(children, context, **_):
             children[0] = Name(c.value + 'XX', start_pos=c.start_pos, prefix=c.prefix)
             return children
 
+# Mutates 'raise' or 'raise <exception>' to 'pass'
+def raise_mutation(children, node, **_):
+    children = children[:]
+    if len(children) <= 2:
+        if len(children) == 2:
+            children.pop()
+        c = children[0]
+        children[0] = Keyword(value='pass', start_pos=node.start_pos, prefix=c.prefix)
+    return children
+
+
 
 def keyword_mutation(value, context, **_):
 
@@ -285,7 +297,6 @@ import_from_star_pattern = ASTPattern("""
 from _name import *
 #                 ^
 """)
-
 
 def operator_mutation(value, node, **_):
     if import_from_star_pattern.matches(node=node):
@@ -528,6 +539,84 @@ def list_comprehension_mutation(children, node, **_):
     children[list_idx] = empty_list
     return children[:list_idx+1]
 
+def create_pass_simple_stmt(pos):
+    return create_keyword_simple_stmt('pass', pos)
+
+def create_raise_simple_stmt(pos):
+    return create_keyword_simple_stmt('raise', pos)
+
+def create_keyword_simple_stmt(keyword, pos):
+    """ Creates a simple statement containing one keyword.
+        pos: (line, column) at which to start
+    """
+    kw_node = Keyword(value=keyword, start_pos=pos, prefix=' ')
+    nl_node = Newline(value='\n', start_pos=kw_node.end_pos)
+    pass_simple_stmt_node = PythonNode('simple_stmt', [kw_node, nl_node])
+    return pass_simple_stmt_node
+
+def locate_next_suite_or_stmt_index(children, start_index):
+    i = start_index
+    while i < len(children):
+        node = children[i]
+        if type(node) == PythonNode and node.type in ['suite', 'simple_stmt']:
+            return i
+        i += 1
+    return -1
+
+def try_block_mutation_helper(children, marker_clause_index, stmt_creator_fn):
+    """Helper method to reduce code duplication in the try_stmt mutator."""
+
+    # Find the index of the statement or suite which is the block controlled by the try block sub-clause
+    suite_index = locate_next_suite_or_stmt_index(children, marker_clause_index)
+    if suite_index >= 0:
+        # Replace the block with a mutation; either a pass or a raise.
+        new_children = copy.deepcopy(children)
+        pos = new_children[suite_index].start_pos
+        mutated_node = stmt_creator_fn(pos)
+        new_children[suite_index] = mutated_node
+        return new_children
+
+def try_stmt_mutation(children, **_):
+    # Locate child indexes for the except, else, and finally blocks
+    # Note: else_ and finally_ index should only ever hold one element but
+    # are lists for coding convenience
+    except_indexes = [i for i, x in enumerate(children) if type(x) == PythonNode and x.type == 'except_clause']
+
+    index_else = [i for i, x in enumerate(children) if type(x) == Keyword and x.value == 'else']
+    assert len(index_else) <= 1
+
+    index_finally = [i for i, x in enumerate(children) if type(x) == Keyword and x.value == 'finally']
+    assert len(index_finally) <= 1
+
+    mutations = {}
+    for i in except_indexes:
+        # except => pass
+        new_children = try_block_mutation_helper(children, i, create_pass_simple_stmt)
+        if new_children:
+            key = "except-pass-" + str(i)
+            mutations[key] = new_children
+
+        # except => raise
+        new_children = try_block_mutation_helper(children, i, create_raise_simple_stmt)
+        if new_children:
+            key = "except-raise-" + str(i)
+            mutations[key] = new_children
+
+    for i in index_else:
+        # else => pass
+        new_children = try_block_mutation_helper(children, i, create_pass_simple_stmt)
+        if new_children:
+            mutations["else"] = new_children
+        break
+
+    for i in index_finally:
+        # finally => pass
+        new_children = try_block_mutation_helper(children, i, create_pass_simple_stmt)
+        if new_children:
+            mutations["finally"] = new_children
+        break
+
+    return mutations
 
 mutations_by_type = {
     'operator': dict(value=operator_mutation),
@@ -545,6 +634,8 @@ mutations_by_type = {
     'for_stmt': dict(children=loop_mutation),
     'while_stmt': dict(children=loop_mutation),
     'comp_for': dict(children=list_comprehension_mutation),
+    'raise_stmt': dict(children=raise_mutation),
+    'try_stmt': dict(children=try_stmt_mutation),
 }
 
 # TODO: detect regexes and mutate them in nasty ways? Maybe mutate all strings as if they are regexes
@@ -690,13 +781,16 @@ def mutate_node(node, context):
                 if new is not None and new != old:
                     if context.should_mutate():
                         context.number_of_performed_mutations += 1
-                        context.performed_mutation_ids.append(context.mutation_id_of_current_index)
+                        mutation_id = context.mutation_id_of_current_index
+                        mutation_id.mutation_name = node.type
+                        context.performed_mutation_ids.append(mutation_id)
                         setattr(node, key, new)
                     context.index += 1
 
                 # this is just an optimization to stop early
                 if context.number_of_performed_mutations and context.mutation_id != ALL:
                     return
+
     finally:
         context.stack.pop()
 
