@@ -394,17 +394,114 @@ def subscript_mutation(node, children, **_):
 
     if splice_operator_index == -1:
         return children
-    
-    # x[:a] => x[:]
-    if len(children) == 2 and splice_operator_index == 0:
-        return children[0:1]
-    
-    # x[a:b] => x[:b] and x[a:] => x[:]
-    if len(children) >= 2:
-        return children[splice_operator_index:]
 
-    # don't mutate x[:]
-    return children
+    mutations = {}
+
+    if has_left_sibling(children[splice_operator_index]) and has_right_sibling(children[splice_operator_index]):
+        # mutations for x[a:b]
+        mutations.update(subscript_mutation_a_b(children, splice_operator_index))
+    elif has_left_sibling(children[splice_operator_index]):
+        # mutations for x[a:]
+        mutations.update(subscript_mutation_a_blank(children, splice_operator_index))
+    elif has_right_sibling(children[splice_operator_index]):
+        # mutations for x[:b]
+        mutations.update(subscript_mutation_blank_b(children, splice_operator_index))
+    else:
+        # mutations for x[:]
+        mutations.update(subscript_mutation_blank_blank(children, splice_operator_index))
+
+    return mutations
+
+
+def subscript_mutation_a_b(children, splice_operator_index):
+    mutations = {}
+
+    new_children = copy.deepcopy(children)
+    mutations["x[a:b] => x[a:]"] = new_children[:splice_operator_index + 1]
+
+    new_children = copy.deepcopy(children)
+    mutations["x[a:b] => x[:b]"] = new_children[splice_operator_index:]
+
+    new_children = copy.deepcopy(children)
+    mutations["x[a:b] => x[:]"] = new_children[splice_operator_index:splice_operator_index + 1]
+
+    return mutations
+
+def subscript_mutation_a_blank(children, splice_operator_index):
+    mutations = {}
+
+    # x[a:] => x[a:b]
+    new_children = copy.deepcopy(children)
+    new_children = append_negative_1(new_children)
+    mutations["x[a:] => x[a:b]"] = new_children
+
+    # x[a:] => x[:]
+    new_children = copy.deepcopy(children)
+    mutations["x[a:] => x[:]"] = new_children[splice_operator_index:]
+
+    return mutations
+
+def subscript_mutation_blank_b(children, splice_operator_index):
+    mutations = {}
+
+    # x[:b] => x[a:b]
+    new_children = copy.deepcopy(children)
+    new_children = prepend_1(new_children)
+    mutations["x[:b] => x[a:b]"] = new_children
+
+    # x[:b] => x[:]
+    new_children = copy.deepcopy(children)
+    mutations["x[:b] => x[:]"] = new_children[:splice_operator_index + 1]
+
+    return mutations
+
+def subscript_mutation_blank_blank(children, splice_operator_index):
+    mutations = {}
+
+    # x[:] => x[a:]
+    new_children = copy.deepcopy(children)
+    new_children = prepend_1(new_children)
+    mutations["x[:] => x[a:]"] = new_children
+
+    # x[:] => x[:b]
+    new_children = copy.deepcopy(children)
+    new_children = append_negative_1(new_children)
+    mutations["x[:] => x[:b]"] = new_children
+
+    # x[:] => x[a:b]
+    new_children = copy.deepcopy(children)
+    new_children = prepend_1(new_children)
+    new_children = append_negative_1(new_children)
+    mutations["x[:] => x[a:b]"] = new_children
+
+    return mutations
+
+def append_negative_1(new_children):
+    # turns [a:] into [a:-1]
+    new_children.append(Number(value='-1', start_pos=new_children[-1].end_pos))
+    return new_children
+
+def prepend_1(new_children):
+    # turns [:b] into [1:b]
+    number_node = Number(value='1', start_pos=new_children[0].start_pos)
+    
+    # update starting position of the nodes to the right by updating the starting positions of the leaves
+    for node in new_children:
+        leaf = node.get_first_leaf()
+        leaf.start_pos = (leaf.start_pos[0], leaf.start_pos[1] + 1)
+
+        while leaf != node.get_last_leaf():
+            leaf = leaf.get_next_leaf()
+            leaf.start_pos = (leaf.start_pos[0], leaf.start_pos[1] + 1)
+
+    new_children = [number_node] + new_children
+    return new_children
+
+def has_left_sibling(node):
+    return node.get_previous_sibling() != None
+
+def has_right_sibling(node):
+    return node.get_next_sibling() != None
 
 array_subscript_pattern = ASTPattern("""
 _name[_any]
