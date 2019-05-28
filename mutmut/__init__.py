@@ -385,49 +385,49 @@ def decorator_mutation(children, **_):
 
 def subscript_mutation(node, children, **_):
     assert node.type == 'subscript'
-    splice_operator_index = -1
+    slice_operator_index = -1
     for i in range(0, len(children)):
         child_node = children[i]
         if child_node.type == 'operator' and child_node.value == ':':
-            assert splice_operator_index == -1
-            splice_operator_index = i
+            assert slice_operator_index == -1
+            slice_operator_index = i
 
-    if splice_operator_index == -1:
+    if slice_operator_index == -1:
         return children
 
     mutations = {}
 
-    if has_left_sibling(children[splice_operator_index]) and has_right_sibling(children[splice_operator_index]):
+    if has_left_sibling(children[slice_operator_index]) and has_right_sibling(children[slice_operator_index]):
         # mutations for x[a:b]
-        mutations.update(subscript_mutation_a_b(children, splice_operator_index))
-    elif has_left_sibling(children[splice_operator_index]):
+        mutations.update(subscript_mutation_a_b(children, slice_operator_index))
+    elif has_left_sibling(children[slice_operator_index]):
         # mutations for x[a:]
-        mutations.update(subscript_mutation_a_blank(children, splice_operator_index))
-    elif has_right_sibling(children[splice_operator_index]):
+        mutations.update(subscript_mutation_a_blank(children, slice_operator_index))
+    elif has_right_sibling(children[slice_operator_index]):
         # mutations for x[:b]
-        mutations.update(subscript_mutation_blank_b(children, splice_operator_index))
+        mutations.update(subscript_mutation_blank_b(children, slice_operator_index))
     else:
         # mutations for x[:]
-        mutations.update(subscript_mutation_blank_blank(children, splice_operator_index))
+        mutations.update(subscript_mutation_blank_blank(children, slice_operator_index))
 
     return mutations
 
 
-def subscript_mutation_a_b(children, splice_operator_index):
+def subscript_mutation_a_b(children, slice_operator_index):
     mutations = {}
 
     new_children = copy.deepcopy(children)
-    mutations["x[a:b] => x[a:]"] = new_children[:splice_operator_index + 1]
+    mutations["x[a:b] => x[a:]"] = new_children[:slice_operator_index + 1]
 
     new_children = copy.deepcopy(children)
-    mutations["x[a:b] => x[:b]"] = new_children[splice_operator_index:]
+    mutations["x[a:b] => x[:b]"] = new_children[slice_operator_index:]
 
     new_children = copy.deepcopy(children)
-    mutations["x[a:b] => x[:]"] = new_children[splice_operator_index:splice_operator_index + 1]
+    mutations["x[a:b] => x[:]"] = new_children[slice_operator_index:slice_operator_index + 1]
 
     return mutations
 
-def subscript_mutation_a_blank(children, splice_operator_index):
+def subscript_mutation_a_blank(children, slice_operator_index):
     mutations = {}
 
     # x[a:] => x[a:-1]
@@ -437,11 +437,11 @@ def subscript_mutation_a_blank(children, splice_operator_index):
 
     # x[a:] => x[:]
     new_children = copy.deepcopy(children)
-    mutations["x[a:] => x[:]"] = new_children[splice_operator_index:]
+    mutations["x[a:] => x[:]"] = new_children[slice_operator_index:]
 
     return mutations
 
-def subscript_mutation_blank_b(children, splice_operator_index):
+def subscript_mutation_blank_b(children, slice_operator_index):
     mutations = {}
 
     # x[:b] => x[1:b]
@@ -451,11 +451,11 @@ def subscript_mutation_blank_b(children, splice_operator_index):
 
     # x[:b] => x[:]
     new_children = copy.deepcopy(children)
-    mutations["x[:b] => x[:]"] = new_children[:splice_operator_index + 1]
+    mutations["x[:b] => x[:]"] = new_children[:slice_operator_index + 1]
 
     return mutations
 
-def subscript_mutation_blank_blank(children, splice_operator_index):
+def subscript_mutation_blank_blank(children, slice_operator_index):
     mutations = {}
 
     # x[:] => x[1:]
