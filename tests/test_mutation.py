@@ -97,7 +97,7 @@ for x in y:
         ('s[0]', 's[1]'),
         ('s[0] = a', 's[1] = None'),
         ('s[x]', 's[None]'),
-        ('s[1:]', 's[2:]'),
+        ('s[1:]', ['s[2:]', 's[:]', 's[1:-1]']),
         ('1j', '2j'),
         ('1.0j', '2.0j'),
         ('0o1', '2'),
@@ -113,7 +113,11 @@ for x in y:
 )
 def test_basic_mutations(original, expected):
     actual, number_of_performed_mutations = mutate(Context(source=original, mutation_id=ALL, dict_synonyms=['Struct', 'FooBarDict']))
-    assert actual == expected, 'Performed %s mutations for original "%s"' % (number_of_performed_mutations, original)
+    if type(expected) == list:
+        assert actual in expected
+        assert number_of_performed_mutations == len(expected), 'Performed %s mutations for original "%s"' % (number_of_performed_mutations, original)
+    else:
+        assert actual == expected, 'Performed %s mutations for original "%s"' % (number_of_performed_mutations, original)
 
 @pytest.mark.parametrize(
     'original, expected', [
