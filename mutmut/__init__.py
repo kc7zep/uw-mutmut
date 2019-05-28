@@ -383,6 +383,125 @@ def decorator_mutation(children, **_):
     assert children[-1].type == 'newline'
     return children[-1:]
 
+def subscript_mutation(node, children, **_):
+    assert node.type == 'subscript'
+    slice_operator_index = -1
+    for i in range(0, len(children)):
+        child_node = children[i]
+        if child_node.type == 'operator' and child_node.value == ':':
+            assert slice_operator_index == -1
+            slice_operator_index = i
+
+    if slice_operator_index == -1:
+        return children
+
+    mutations = {}
+
+    if has_left_sibling(children[slice_operator_index]) and has_right_sibling(children[slice_operator_index]):
+        # mutations for x[a:b]
+        mutations.update(subscript_mutation_a_b(children, slice_operator_index))
+    elif has_left_sibling(children[slice_operator_index]):
+        # mutations for x[a:]
+        mutations.update(subscript_mutation_a_blank(children, slice_operator_index))
+    elif has_right_sibling(children[slice_operator_index]):
+        # mutations for x[:b]
+        mutations.update(subscript_mutation_blank_b(children, slice_operator_index))
+    else:
+        # mutations for x[:]
+        mutations.update(subscript_mutation_blank_blank(children, slice_operator_index))
+
+    return mutations
+
+
+def subscript_mutation_a_b(children, slice_operator_index):
+    mutations = {}
+
+    new_children = copy.deepcopy(children)
+    mutations["x[a:b] => x[a:]"] = new_children[:slice_operator_index + 1]
+
+    new_children = copy.deepcopy(children)
+    mutations["x[a:b] => x[:b]"] = new_children[slice_operator_index:]
+
+    new_children = copy.deepcopy(children)
+    mutations["x[a:b] => x[:]"] = new_children[slice_operator_index:slice_operator_index + 1]
+
+    return mutations
+
+def subscript_mutation_a_blank(children, slice_operator_index):
+    mutations = {}
+
+    # x[a:] => x[a:-1]
+    new_children = copy.deepcopy(children)
+    new_children = append_negative_1(new_children)
+    mutations["x[a:] => x[a:-1]"] = new_children
+
+    # x[a:] => x[:]
+    new_children = copy.deepcopy(children)
+    mutations["x[a:] => x[:]"] = new_children[slice_operator_index:]
+
+    return mutations
+
+def subscript_mutation_blank_b(children, slice_operator_index):
+    mutations = {}
+
+    # x[:b] => x[1:b]
+    new_children = copy.deepcopy(children)
+    new_children = prepend_1(new_children)
+    mutations["x[:b] => x[1:b]"] = new_children
+
+    # x[:b] => x[:]
+    new_children = copy.deepcopy(children)
+    mutations["x[:b] => x[:]"] = new_children[:slice_operator_index + 1]
+
+    return mutations
+
+def subscript_mutation_blank_blank(children, slice_operator_index):
+    mutations = {}
+
+    # x[:] => x[1:]
+    new_children = copy.deepcopy(children)
+    new_children = prepend_1(new_children)
+    mutations["x[:] => x[1:]"] = new_children
+
+    # x[:] => x[:-1]
+    new_children = copy.deepcopy(children)
+    new_children = append_negative_1(new_children)
+    mutations["x[:] => x[:-1]"] = new_children
+
+    # x[:] => x[1:-1]
+    new_children = copy.deepcopy(children)
+    new_children = prepend_1(new_children)
+    new_children = append_negative_1(new_children)
+    mutations["x[:] => x[1:-1]"] = new_children
+
+    return mutations
+
+def append_negative_1(new_children):
+    # turns [a:] into [a:-1]
+    new_children.append(Number(value='-1', start_pos=new_children[-1].end_pos))
+    return new_children
+
+def prepend_1(new_children):
+    # turns [:b] into [1:b]
+    number_node = Number(value='1', start_pos=new_children[0].start_pos)
+    
+    # update starting position of the nodes to the right by updating the starting positions of the leaves
+    for node in new_children:
+        leaf = node.get_first_leaf()
+        leaf.start_pos = (leaf.start_pos[0], leaf.start_pos[1] + 1)
+
+        while leaf != node.get_last_leaf():
+            leaf = leaf.get_next_leaf()
+            leaf.start_pos = (leaf.start_pos[0], leaf.start_pos[1] + 1)
+
+    new_children = [number_node] + new_children
+    return new_children
+
+def has_left_sibling(node):
+    return node.get_previous_sibling() != None
+
+def has_right_sibling(node):
+    return node.get_next_sibling() != None
 
 array_subscript_pattern = ASTPattern("""
 _name[_any]
@@ -636,6 +755,7 @@ mutations_by_type = {
     'comp_for': dict(children=list_comprehension_mutation),
     'raise_stmt': dict(children=raise_mutation),
     'try_stmt': dict(children=try_stmt_mutation),
+    'subscript': dict(children=subscript_mutation),
 }
 
 # TODO: detect regexes and mutate them in nasty ways? Maybe mutate all strings as if they are regexes
