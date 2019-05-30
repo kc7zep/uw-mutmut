@@ -417,13 +417,13 @@ def subscript_mutation_a_b(children, slice_operator_index):
     mutations = {}
 
     new_children = copy.deepcopy(children)
-    mutations["x[a:b] => x[a:]"] = new_children[:slice_operator_index + 1]
+    mutations["x[a:b] => x[a:]"] = pack_mutator_tuple(new_children[:slice_operator_index + 1], "x[a:b] => x[a:]")
 
     new_children = copy.deepcopy(children)
-    mutations["x[a:b] => x[:b]"] = new_children[slice_operator_index:]
+    mutations["x[a:b] => x[:b]"] = pack_mutator_tuple(new_children[slice_operator_index:], "x[a:b] => x[:b]")
 
     new_children = copy.deepcopy(children)
-    mutations["x[a:b] => x[:]"] = new_children[slice_operator_index:slice_operator_index + 1]
+    mutations["x[a:b] => x[:]"] = pack_mutator_tuple(new_children[slice_operator_index:slice_operator_index + 1], "x[a:b] => x[:]")
 
     return mutations
 
@@ -433,11 +433,11 @@ def subscript_mutation_a_blank(children, slice_operator_index):
     # x[a:] => x[a:-1]
     new_children = copy.deepcopy(children)
     new_children = append_negative_1(new_children)
-    mutations["x[a:] => x[a:-1]"] = new_children
+    mutations["x[a:] => x[a:-1]"] = pack_mutator_tuple(new_children, "x[a:] => x[a:-1]")
 
     # x[a:] => x[:]
     new_children = copy.deepcopy(children)
-    mutations["x[a:] => x[:]"] = new_children[slice_operator_index:]
+    mutations["x[a:] => x[:]"] = pack_mutator_tuple(new_children[slice_operator_index:], "x[a:] => x[:]")
 
     return mutations
 
@@ -447,11 +447,11 @@ def subscript_mutation_blank_b(children, slice_operator_index):
     # x[:b] => x[1:b]
     new_children = copy.deepcopy(children)
     new_children = prepend_1(new_children)
-    mutations["x[:b] => x[1:b]"] = new_children
+    mutations["x[:b] => x[1:b]"] = pack_mutator_tuple(new_children, "x[:b] => x[1:b]")
 
     # x[:b] => x[:]
     new_children = copy.deepcopy(children)
-    mutations["x[:b] => x[:]"] = new_children[:slice_operator_index + 1]
+    mutations["x[:b] => x[:]"] = pack_mutator_tuple(new_children[:slice_operator_index + 1], "x[:b] => x[:]")
 
     return mutations
 
@@ -461,18 +461,18 @@ def subscript_mutation_blank_blank(children, slice_operator_index):
     # x[:] => x[1:]
     new_children = copy.deepcopy(children)
     new_children = prepend_1(new_children)
-    mutations["x[:] => x[1:]"] = new_children
+    mutations["x[:] => x[1:]"] = pack_mutator_tuple(new_children, "x[:] => x[1:]")
 
     # x[:] => x[:-1]
     new_children = copy.deepcopy(children)
     new_children = append_negative_1(new_children)
-    mutations["x[:] => x[:-1]"] = new_children
+    mutations["x[:] => x[:-1]"] = pack_mutator_tuple(new_children, "x[:] => x[:-1]")
 
     # x[:] => x[1:-1]
     new_children = copy.deepcopy(children)
     new_children = prepend_1(new_children)
     new_children = append_negative_1(new_children)
-    mutations["x[:] => x[1:-1]"] = new_children
+    mutations["x[:] => x[1:-1]"] = pack_mutator_tuple(new_children, "x[:] => x[1:-1]")
 
     return mutations
 
@@ -573,7 +573,7 @@ def zero_loop_mutation_for(base_children, node, **_):
                     start_pos=testlist.start_pos)
             break
 
-    return children
+    return pack_mutator_tuple(children, "for_stmt_zero_loop")
 
 def zero_loop_mutation_while(base_children, node, **_):
     """
@@ -590,7 +590,7 @@ def zero_loop_mutation_while(base_children, node, **_):
     break_node = create_break_node(suite[1].start_pos)
     suite.insert(1, break_node)
 
-    return children
+    return pack_mutator_tuple(children, "while_stmt_zero_loop")
 
 def one_loop_mutation(base_children, node, **_):
     """
@@ -622,7 +622,7 @@ def one_loop_mutation(base_children, node, **_):
 
             suite.children.append(break_node)
             break
-    return children
+    return pack_mutator_tuple(children, "loop_one_iteration")
 
 def get_loop_body(children):
     # this may also be children[-1]
@@ -695,7 +695,15 @@ def try_block_mutation_helper(children, marker_clause_index, stmt_creator_fn):
         new_children[suite_index] = mutated_node
         return new_children
 
-def try_stmt_mutation(children, **_):
+# These values must match the tuple defined in pack_mutation_name
+MUTATOR_VALUE = 0
+SPECIFIC_MUTATION_NAME = 1
+
+def pack_mutator_tuple(mutator_return_value, name):
+    """Helper method to aggregate a string with a mutator return value"""
+    return (mutator_return_value, name)
+
+def try_stmt_mutation(children, context, **_):
     # Locate child indexes for the except, else, and finally blocks
     # Note: else_ and finally_ index should only ever hold one element but
     # are lists for coding convenience
@@ -713,26 +721,26 @@ def try_stmt_mutation(children, **_):
         new_children = try_block_mutation_helper(children, i, create_pass_simple_stmt)
         if new_children:
             key = "except-pass-" + str(i)
-            mutations[key] = new_children
+            mutations[key] = pack_mutator_tuple(new_children, "except-pass")
 
         # except => raise
         new_children = try_block_mutation_helper(children, i, create_raise_simple_stmt)
         if new_children:
             key = "except-raise-" + str(i)
-            mutations[key] = new_children
+            mutations[key] = pack_mutator_tuple(new_children, "except-raise")
 
     for i in index_else:
         # else => pass
         new_children = try_block_mutation_helper(children, i, create_pass_simple_stmt)
         if new_children:
-            mutations["else"] = new_children
+            mutations["else"] = pack_mutator_tuple(new_children, "else-pass")
         break
 
     for i in index_finally:
         # finally => pass
         new_children = try_block_mutation_helper(children, i, create_pass_simple_stmt)
         if new_children:
-            mutations["finally"] = new_children
+            mutations["finally"] = pack_mutator_tuple(new_children, "finally-pass")
         break
 
     return mutations
@@ -897,12 +905,22 @@ def mutate_node(node, context):
                 new_mutations.append(new_evaluation)
 
             for new in new_mutations:
+                mutation_name = node.type
+                # Unpack the specific mutation name
+                # Relies on the pack_mutator_tuple convention.
+                if type(new) == tuple:
+                    mutation_name = new[SPECIFIC_MUTATION_NAME]
+                    new = new[MUTATOR_VALUE]
+                else:
+                    # new is an original-style mutator value
+                    pass
+
                 assert not callable(new)
                 if new is not None and new != old:
                     if context.should_mutate():
                         context.number_of_performed_mutations += 1
                         mutation_id = context.mutation_id_of_current_index
-                        mutation_id.mutation_name = node.type
+                        mutation_id.mutation_name = mutation_name
                         context.performed_mutation_ids.append(mutation_id)
                         setattr(node, key, new)
                     context.index += 1
