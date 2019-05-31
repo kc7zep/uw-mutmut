@@ -18,9 +18,10 @@ class MutationID(object):
         self.line = line
         self.index = index
         self.line_number = line_number
+        self.mutation_name = "none"
 
     def __repr__(self):
-        return 'MutationID(line="%s", index=%s, line_number=%s)' % (self.line, self.index, self.line_number)
+        return 'MutationID(line="%s", index=%s, line_number=%s, mutation_name=%s)' % (self.line, self.index, self.line_number, self.mutation_name)
 
     def __eq__(self, other):
         return (self.line, self.index, self.line_number) == (other.line, other.index, other.line_number)
@@ -260,6 +261,17 @@ def argument_mutation(children, context, **_):
             children[0] = Name(c.value + 'XX', start_pos=c.start_pos, prefix=c.prefix)
             return children
 
+# Mutates 'raise' or 'raise <exception>' to 'pass'
+def raise_mutation(children, node, **_):
+    children = children[:]
+    if len(children) <= 2:
+        if len(children) == 2:
+            children.pop()
+        c = children[0]
+        children[0] = Keyword(value='pass', start_pos=node.start_pos, prefix=c.prefix)
+    return children
+
+
 
 def keyword_mutation(value, context, **_):
 
@@ -285,7 +297,6 @@ import_from_star_pattern = ASTPattern("""
 from _name import *
 #                 ^
 """)
-
 
 def operator_mutation(value, node, **_):
     if import_from_star_pattern.matches(node=node):
@@ -372,6 +383,125 @@ def decorator_mutation(children, **_):
     assert children[-1].type == 'newline'
     return children[-1:]
 
+def subscript_mutation(node, children, **_):
+    assert node.type == 'subscript'
+    slice_operator_index = -1
+    for i in range(0, len(children)):
+        child_node = children[i]
+        if child_node.type == 'operator' and child_node.value == ':':
+            assert slice_operator_index == -1
+            slice_operator_index = i
+
+    if slice_operator_index == -1:
+        return children
+
+    mutations = {}
+
+    if has_left_sibling(children[slice_operator_index]) and has_right_sibling(children[slice_operator_index]):
+        # mutations for x[a:b]
+        mutations.update(subscript_mutation_a_b(children, slice_operator_index))
+    elif has_left_sibling(children[slice_operator_index]):
+        # mutations for x[a:]
+        mutations.update(subscript_mutation_a_blank(children, slice_operator_index))
+    elif has_right_sibling(children[slice_operator_index]):
+        # mutations for x[:b]
+        mutations.update(subscript_mutation_blank_b(children, slice_operator_index))
+    else:
+        # mutations for x[:]
+        mutations.update(subscript_mutation_blank_blank(children, slice_operator_index))
+
+    return mutations
+
+
+def subscript_mutation_a_b(children, slice_operator_index):
+    mutations = {}
+
+    new_children = copy.deepcopy(children)
+    mutations["x[a:b] => x[a:]"] = pack_mutator_tuple(new_children[:slice_operator_index + 1], "x[a:b] => x[a:]")
+
+    new_children = copy.deepcopy(children)
+    mutations["x[a:b] => x[:b]"] = pack_mutator_tuple(new_children[slice_operator_index:], "x[a:b] => x[:b]")
+
+    new_children = copy.deepcopy(children)
+    mutations["x[a:b] => x[:]"] = pack_mutator_tuple(new_children[slice_operator_index:slice_operator_index + 1], "x[a:b] => x[:]")
+
+    return mutations
+
+def subscript_mutation_a_blank(children, slice_operator_index):
+    mutations = {}
+
+    # x[a:] => x[a:-1]
+    new_children = copy.deepcopy(children)
+    new_children = append_negative_1(new_children)
+    mutations["x[a:] => x[a:-1]"] = pack_mutator_tuple(new_children, "x[a:] => x[a:-1]")
+
+    # x[a:] => x[:]
+    new_children = copy.deepcopy(children)
+    mutations["x[a:] => x[:]"] = pack_mutator_tuple(new_children[slice_operator_index:], "x[a:] => x[:]")
+
+    return mutations
+
+def subscript_mutation_blank_b(children, slice_operator_index):
+    mutations = {}
+
+    # x[:b] => x[1:b]
+    new_children = copy.deepcopy(children)
+    new_children = prepend_1(new_children)
+    mutations["x[:b] => x[1:b]"] = pack_mutator_tuple(new_children, "x[:b] => x[1:b]")
+
+    # x[:b] => x[:]
+    new_children = copy.deepcopy(children)
+    mutations["x[:b] => x[:]"] = pack_mutator_tuple(new_children[:slice_operator_index + 1], "x[:b] => x[:]")
+
+    return mutations
+
+def subscript_mutation_blank_blank(children, slice_operator_index):
+    mutations = {}
+
+    # x[:] => x[1:]
+    new_children = copy.deepcopy(children)
+    new_children = prepend_1(new_children)
+    mutations["x[:] => x[1:]"] = pack_mutator_tuple(new_children, "x[:] => x[1:]")
+
+    # x[:] => x[:-1]
+    new_children = copy.deepcopy(children)
+    new_children = append_negative_1(new_children)
+    mutations["x[:] => x[:-1]"] = pack_mutator_tuple(new_children, "x[:] => x[:-1]")
+
+    # x[:] => x[1:-1]
+    new_children = copy.deepcopy(children)
+    new_children = prepend_1(new_children)
+    new_children = append_negative_1(new_children)
+    mutations["x[:] => x[1:-1]"] = pack_mutator_tuple(new_children, "x[:] => x[1:-1]")
+
+    return mutations
+
+def append_negative_1(new_children):
+    # turns [a:] into [a:-1]
+    new_children.append(Number(value='-1', start_pos=new_children[-1].end_pos))
+    return new_children
+
+def prepend_1(new_children):
+    # turns [:b] into [1:b]
+    number_node = Number(value='1', start_pos=new_children[0].start_pos)
+    
+    # update starting position of the nodes to the right by updating the starting positions of the leaves
+    for node in new_children:
+        leaf = node.get_first_leaf()
+        leaf.start_pos = (leaf.start_pos[0], leaf.start_pos[1] + 1)
+
+        while leaf != node.get_last_leaf():
+            leaf = leaf.get_next_leaf()
+            leaf.start_pos = (leaf.start_pos[0], leaf.start_pos[1] + 1)
+
+    new_children = [number_node] + new_children
+    return new_children
+
+def has_left_sibling(node):
+    return node.get_previous_sibling() != None
+
+def has_right_sibling(node):
+    return node.get_next_sibling() != None
 
 array_subscript_pattern = ASTPattern("""
 _name[_any]
@@ -443,7 +573,7 @@ def zero_loop_mutation_for(base_children, node, **_):
                     start_pos=testlist.start_pos)
             break
 
-    return children
+    return pack_mutator_tuple(children, "for_stmt_zero_loop")
 
 def zero_loop_mutation_while(base_children, node, **_):
     """
@@ -460,7 +590,7 @@ def zero_loop_mutation_while(base_children, node, **_):
     break_node = create_break_node(suite[1].start_pos)
     suite.insert(1, break_node)
 
-    return children
+    return pack_mutator_tuple(children, "while_stmt_zero_loop")
 
 def one_loop_mutation(base_children, node, **_):
     """
@@ -492,7 +622,7 @@ def one_loop_mutation(base_children, node, **_):
 
             suite.children.append(break_node)
             break
-    return children
+    return pack_mutator_tuple(children, "loop_one_iteration")
 
 def get_loop_body(children):
     # this may also be children[-1]
@@ -536,6 +666,92 @@ def list_comprehension_mutation(children, node, **_):
     children[list_idx] = empty_list
     return children[:list_idx+1]
 
+def create_pass_simple_stmt(pos):
+    return create_keyword_simple_stmt('pass', pos)
+
+def create_raise_simple_stmt(pos):
+    return create_keyword_simple_stmt('raise', pos)
+
+def create_keyword_simple_stmt(keyword, pos):
+    """ Creates a simple statement containing one keyword.
+        pos: (line, column) at which to start
+    """
+    kw_node = Keyword(value=keyword, start_pos=pos, prefix=' ')
+    nl_node = Newline(value='\n', start_pos=kw_node.end_pos)
+    pass_simple_stmt_node = PythonNode('simple_stmt', [kw_node, nl_node])
+    return pass_simple_stmt_node
+
+def locate_next_suite_or_stmt_index(children, start_index):
+    i = start_index
+    while i < len(children):
+        node = children[i]
+        if type(node) == PythonNode and node.type in ['suite', 'simple_stmt']:
+            return i
+        i += 1
+    return -1
+
+def try_block_mutation_helper(children, marker_clause_index, stmt_creator_fn):
+    """Helper method to reduce code duplication in the try_stmt mutator."""
+
+    # Find the index of the statement or suite which is the block controlled by the try block sub-clause
+    suite_index = locate_next_suite_or_stmt_index(children, marker_clause_index)
+    if suite_index >= 0:
+        # Replace the block with a mutation; either a pass or a raise.
+        new_children = copy.deepcopy(children)
+        pos = new_children[suite_index].start_pos
+        mutated_node = stmt_creator_fn(pos)
+        new_children[suite_index] = mutated_node
+        return new_children
+
+# These values must match the tuple defined in pack_mutation_name
+MUTATOR_VALUE = 0
+SPECIFIC_MUTATION_NAME = 1
+
+def pack_mutator_tuple(mutator_return_value, name):
+    """Helper method to aggregate a string with a mutator return value"""
+    return (mutator_return_value, name)
+
+def try_stmt_mutation(children, context, **_):
+    # Locate child indexes for the except, else, and finally blocks
+    # Note: else_ and finally_ index should only ever hold one element but
+    # are lists for coding convenience
+    except_indexes = [i for i, x in enumerate(children) if type(x) == PythonNode and x.type == 'except_clause']
+
+    index_else = [i for i, x in enumerate(children) if type(x) == Keyword and x.value == 'else']
+    assert len(index_else) <= 1
+
+    index_finally = [i for i, x in enumerate(children) if type(x) == Keyword and x.value == 'finally']
+    assert len(index_finally) <= 1
+
+    mutations = {}
+    for i in except_indexes:
+        # except => pass
+        new_children = try_block_mutation_helper(children, i, create_pass_simple_stmt)
+        if new_children:
+            key = "except-pass-" + str(i)
+            mutations[key] = pack_mutator_tuple(new_children, "except-pass")
+
+        # except => raise
+        new_children = try_block_mutation_helper(children, i, create_raise_simple_stmt)
+        if new_children:
+            key = "except-raise-" + str(i)
+            mutations[key] = pack_mutator_tuple(new_children, "except-raise")
+
+    for i in index_else:
+        # else => pass
+        new_children = try_block_mutation_helper(children, i, create_pass_simple_stmt)
+        if new_children:
+            mutations["else"] = pack_mutator_tuple(new_children, "else-pass")
+        break
+
+    for i in index_finally:
+        # finally => pass
+        new_children = try_block_mutation_helper(children, i, create_pass_simple_stmt)
+        if new_children:
+            mutations["finally"] = pack_mutator_tuple(new_children, "finally-pass")
+        break
+
+    return mutations
 
 mutations_by_type = {
     'operator': dict(value=operator_mutation),
@@ -553,6 +769,9 @@ mutations_by_type = {
     'for_stmt': dict(children=loop_mutation),
     'while_stmt': dict(children=loop_mutation),
     'comp_for': dict(children=list_comprehension_mutation),
+    'raise_stmt': dict(children=raise_mutation),
+    'try_stmt': dict(children=try_stmt_mutation),
+    'subscript': dict(children=subscript_mutation),
 }
 
 # TODO: detect regexes and mutate them in nasty ways? Maybe mutate all strings as if they are regexes
@@ -694,17 +913,30 @@ def mutate_node(node, context):
                 new_mutations.append(new_evaluation)
 
             for new in new_mutations:
+                mutation_name = node.type
+                # Unpack the specific mutation name
+                # Relies on the pack_mutator_tuple convention.
+                if type(new) == tuple:
+                    mutation_name = new[SPECIFIC_MUTATION_NAME]
+                    new = new[MUTATOR_VALUE]
+                else:
+                    # new is an original-style mutator value
+                    pass
+
                 assert not callable(new)
                 if new is not None and new != old:
                     if context.should_mutate():
                         context.number_of_performed_mutations += 1
-                        context.performed_mutation_ids.append(context.mutation_id_of_current_index)
+                        mutation_id = context.mutation_id_of_current_index
+                        mutation_id.mutation_name = mutation_name
+                        context.performed_mutation_ids.append(mutation_id)
                         setattr(node, key, new)
                     context.index += 1
 
                 # this is just an optimization to stop early
                 if context.number_of_performed_mutations and context.mutation_id != ALL:
                     return
+
     finally:
         context.stack.pop()
 

@@ -97,7 +97,7 @@ for x in y:
         ('s[0]', 's[1]'),
         ('s[0] = a', 's[1] = None'),
         ('s[x]', 's[None]'),
-        ('s[1:]', 's[2:]'),
+        ('s[1:]', ['s[2:]', 's[:]', 's[1:-1]']),
         ('1j', '2j'),
         ('1.0j', '2.0j'),
         ('0o1', '2'),
@@ -108,11 +108,16 @@ for x in y:
         ('lambda **kwargs: Variable.integer(**setdefaults(kwargs, dict(show=False)))', 'lambda **kwargs: None'),
         ('a = {x for x in y}', 'a = None'),
         ('break', 'continue'),
+        ('raise Exception("foo")', 'pass')
     ]
 )
 def test_basic_mutations(original, expected):
     actual, number_of_performed_mutations = mutate(Context(source=original, mutation_id=ALL, dict_synonyms=['Struct', 'FooBarDict']))
-    assert actual == expected, 'Performed %s mutations for original "%s"' % (number_of_performed_mutations, original)
+    if type(expected) == list:
+        assert actual in expected
+        assert number_of_performed_mutations == len(expected), 'Performed %s mutations for original "%s"' % (number_of_performed_mutations, original)
+    else:
+        assert actual == expected, 'Performed %s mutations for original "%s"' % (number_of_performed_mutations, original)
 
 @pytest.mark.parametrize(
     'original, expected', [
@@ -366,6 +371,37 @@ __all__ = [
 """
     assert mutate(Context(source=source)) == (source, 0)
 
+@pytest.mark.parametrize(
+    'original, expected', [
+        ('try:\n    pass\nfinally:\n    a=4\n',
+            ['try:\n    pass\nfinally: pass\n']),
+
+        ('try:\n    pass\nexcept Exception as e:\n    a=4\n',
+            ['try:\n    pass\nexcept Exception as e: pass\n',
+             'try:\n    pass\nexcept Exception as e: raise\n']),
+
+        ('try:\n    pass\nexcept FooException as e:\n    a=4\nelse:\n    a=5\nfinally:\n    a=6\n',
+         ['try:\n    pass\nexcept FooException as e: pass\nelse:\n    a=5\nfinally:\n    a=6\n',
+          'try:\n    pass\nexcept FooException as e: raise\nelse:\n    a=5\nfinally:\n    a=6\n',
+          'try:\n    pass\nexcept FooException as e:\n    a=4\nelse: pass\nfinally:\n    a=6\n',
+          'try:\n    pass\nexcept FooException as e:\n    a=4\nelse:\n    a=5\nfinally: pass\n'
+          ]),
+    ]
+)
+
+def test_try_block_mutations(original, expected):
+    """
+    Body copied from test_basic_multiple_mutations
+    """
+    actual = list_mutations(Context(source=original))
+    actual_mutation_code = []
+    for m in actual:
+        mutation, num_mutations = mutate(Context(source=original, mutation_id=m))
+        assert num_mutations == 1
+        actual_mutation_code.append(mutation)
+    for m in expected:
+        assert m in actual_mutation_code
+
 def test_mutate_list_comprehension():
     source = 'z = [x for x in y]'
     mutations = list_mutations(Context(source=source))
@@ -374,4 +410,5 @@ def test_mutate_list_comprehension():
     assert mutate(Context(source=source, mutation_id=mutations[0])) == ('z = [x for x not in y]', 1)
     assert mutate(Context(source=source, mutation_id=mutations[1])) == ('z = [x for x in []]', 1)
     assert mutate(Context(source=source, mutation_id=mutations[2])) == ('z = None', 1)
+
 
