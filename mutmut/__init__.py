@@ -689,7 +689,7 @@ def try_block_mutation_helper(children, marker_clause_index, stmt_creator_fn):
     suite_index = locate_next_suite_or_stmt_index(children, marker_clause_index)
     if suite_index >= 0:
         # Replace the block with a mutation; either a pass or a raise.
-        new_children = copy.deepcopy(children)
+        new_children = copy.copy(children)
         pos = new_children[suite_index].start_pos
         mutated_node = stmt_creator_fn(pos)
         new_children[suite_index] = mutated_node
