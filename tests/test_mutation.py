@@ -365,3 +365,13 @@ __all__ = [
 ]
 """
     assert mutate(Context(source=source)) == (source, 0)
+
+def test_mutate_list_comprehension():
+    source = 'z = [x for x in y]'
+    mutations = list_mutations(Context(source=source))
+    assert len(mutations) == 3
+    # This can't be tested in basic because the unproductive not in mutation interferes with the [] mutation, and with the cache this clobbers the None mutation. This has been worked around by unmutating the not in.
+    assert mutate(Context(source=source, mutation_id=mutations[0])) == ('z = [x for x not in y]', 1)
+    assert mutate(Context(source=source, mutation_id=mutations[1])) == ('z = [x for x in []]', 1)
+    assert mutate(Context(source=source, mutation_id=mutations[2])) == ('z = None', 1)
+
