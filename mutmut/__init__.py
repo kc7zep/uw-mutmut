@@ -648,9 +648,17 @@ def list_comprehension_mutation(children, node, **_):
     children = children[:]
     list_idx = None
     for idx, child in enumerate(children):
-        if child.type == 'keyword' and child.value == 'in':
-            list_idx = idx + 1
-            break
+        if child.type == 'keyword':
+            if child.value == 'in':
+                list_idx = idx + 1
+                break
+            # A previous mutator may turn the `in` into `not in` in memory
+            # However, the node type will still be correct as it was parsed pre-mutation
+            # This workaround is required since we are not mutating clean code
+            elif child.value == 'not in':
+                list_idx = idx + 1
+                child.value = 'in'
+                break
     if not list_idx:
         return None
     # assuming the list is of type Name
