@@ -544,8 +544,6 @@ def loop_mutation(children, node, **_):
     # node.get_testlist() = y
 
     mutations = {}
-    # need to deep copy inside subfunctions, otherwise both mutations applied at same time
-    # but the deep copy breaks that new != old check in mutate_node, will throw the source assert in mutate()
     if node.type == 'for_stmt':
         mutations['zero'] = zero_loop_mutation_for(children, node, **_)
     elif node.type == 'while_stmt':
@@ -561,13 +559,13 @@ def zero_loop_mutation_for(base_children, node, **_):
         Surviving Test Case: Only write test case that checks for an empty loop, eg input loop = []
         Could also do this by appending a break as first element
     """
-    children = copy.deepcopy(base_children)
+    children = copy.copy(base_children)
     empty_loop = ' []'
 
     testlist = node.get_testlist()
 
     for idx, c in enumerate(children):
-        if c.start_pos == testlist.start_pos: # deepcopy messes the comparision, use position instead
+        if c.start_pos == testlist.start_pos: # copy messes the comparision, use position instead
             children[idx] = Name(
                     value=empty_loop,
                     start_pos=testlist.start_pos)
@@ -581,14 +579,14 @@ def zero_loop_mutation_while(base_children, node, **_):
         Surviving Test Case: Only write test case that checks for an empty loop, eg input loop = []
         TODO: Consider merging the for loop mutation with this one
     """
-    children = copy.deepcopy(base_children)
-    suite = get_loop_body(children)
+    children = copy.copy(base_children)
+    suite_node = shallow_copy_loop_children(children)
 
     # assume 0th element of loop body is a newline
     # assume 1st element of loop body is actual start of function, with proper indentation
     # it seems that line positions are pointless?!
-    break_node = create_break_node(suite[1].start_pos)
-    suite.insert(1, break_node)
+    break_node = create_break_node(suite_node.children[1].start_pos)
+    suite_node.children.insert(1, break_node)
 
     return pack_mutator_tuple(children, "while_stmt_zero_loop")
 
@@ -596,40 +594,43 @@ def one_loop_mutation(base_children, node, **_):
     """
     One-run loop: Adds break statement at the end, so that always gets hit on first run (excluding early return)
         keyword mutation handles replacing continues with break
+        We need to shallow copy not just children, but the suite 
+        this loop node is [for, x ... <PythonNode suite>]
         Surviving Test Case: test with intended single run loop, eg for x in [0]
     """
-    children = copy.deepcopy(base_children)
+    children = copy.copy(base_children)
+    suite_node = shallow_copy_loop_children(children)
 
-    for idx, c in enumerate(children):
-        # suite is the actual body of the loop
-        if c.type == 'suite':
-            # add a break
-            suite = c
-            suite_children = c.children[1:] # assume first element in suite is a newline
-            indent_col = suite_children[0].start_pos[1]
+    # assume suite[0] is a newline
+    indent_col = suite_node.children[1].start_pos[1]
+    last_element = suite_node.get_last_leaf()
+    if last_element.type != 'newline':
+        # I'm assuming the last element will always be newline.
+        # If it isn't, how on earth is the next line written?
+        # Maybe an edge case at the very end of the file?
+        return None
+    # new break position is at next line, but keep the column indent
 
-            last_element = c.get_last_leaf()
-            if last_element.type != 'newline':
-                # I'm assuming the last element will always be newline.
-                # If it isn't, how on earth is the next line written?
-                # Maybe an edge case at the very end of the file?
-                return None
-            # new break position is at next line, but keep the column indent
-            line = last_element.end_pos[0]
-            new_pos = (line, indent_col)
+    line = last_element.end_pos[0]
+    new_pos = (line, indent_col)
 
-            break_node = create_break_node(new_pos)
+    break_node = create_break_node(new_pos)
+    suite_node.children.append(break_node)
 
-            suite.children.append(break_node)
-            break
     return pack_mutator_tuple(children, "loop_one_iteration")
 
-def get_loop_body(children):
-    # this may also be children[-1]
-    for idx, c in enumerate(children):
-        if c.type == 'suite':
-            return c.children
-    return None
+def shallow_copy_loop_children(children):
+    # helper function to properly copy the layers to the suite children
+    # returns reference to suite node
+    suite_index = locate_next_suite_or_stmt_index(children, 0)
+
+    suite_node = copy.copy(children[suite_index])
+    suite_children = copy.copy(suite_node.children)
+
+    suite_node.children = suite_children
+    children[suite_index] = suite_node
+
+    return suite_node
 
 def create_break_node(pos):
     """ Creates a break node.
