@@ -188,7 +188,6 @@ def test_basic_mutations_python36(original, expected):
         'import foo',
         'import foo as bar',
         'foo.bar',
-        'for x in y: pass',
         'def foo(a, *args, **kwargs): pass',
         'import foo',
     ]
