@@ -314,6 +314,8 @@ def operator_mutation(value, node, **_):
     return {
         '+': '-',
         '-': '+',
+        # Simple proof of multiple mutations per operator.
+        # We could technically add more, but not in scope for project.
         '*': {'div':'/', 'exp':'**'},
         '/': '*',
         '//': '/',
@@ -534,14 +536,11 @@ def name_mutation(node, value, **_):
 
 def loop_mutation(children, node, **_):
     """
-    Mutates loop
+    Mutates for and while loops
 
-    For loop children is structured as the nodes that make up the loop defintion (for x in y:) and a suite
-    The suite is a newline, indented, statement, then dedent and another newline
+    * Run loop once
+    * Run loop zero times
     """
-    # for x in y
-    # node.get_defined_names() = x
-    # node.get_testlist() = y
 
     mutations = {}
     if node.type == 'for_stmt':
@@ -555,17 +554,20 @@ def loop_mutation(children, node, **_):
 
 def zero_loop_mutation_for(base_children, node, **_):
     """
-    Zero-run loop: Replaces iteration list with a blank list []
-        Surviving Test Case: Only write test case that checks for an empty loop, eg input loop = []
-        Could also do this by appending a break as first element
+    Zero-run for loop: Replaces iteration list with a blank list []
+    This could also could be done as adding a break as the first element.
+
+    Surviving Test Case: Only write test case that checks for an empty loop, eg input loop = []
     """
     children = copy.copy(base_children)
     empty_loop = ' []'
 
+    # testlist is the list to iterate through
     testlist = node.get_testlist()
 
     for idx, c in enumerate(children):
-        if c.start_pos == testlist.start_pos: # copy messes the comparision, use position instead
+        # Compare positions due to previous deepcopy
+        if c.start_pos == testlist.start_pos:
             children[idx] = Name(
                     value=empty_loop,
                     start_pos=testlist.start_pos)
@@ -576,15 +578,13 @@ def zero_loop_mutation_for(base_children, node, **_):
 def zero_loop_mutation_while(base_children, node, **_):
     """
     Zero-run loop: Adds break statement as first item in loop body
-        Surviving Test Case: Only write test case that checks for an empty loop, eg input loop = []
-        TODO: Consider merging the for loop mutation with this one
+
+    Surviving Test Case: Only write test case that checks for an empty loop, eg input loop = []
     """
     children = copy.copy(base_children)
     suite_node = shallow_copy_loop_children(children)
 
-    # assume 0th element of loop body is a newline
-    # assume 1st element of loop body is actual start of function, with proper indentation
-    # it seems that line positions are pointless?!
+    # start at 1, because 0th element of loop body is a newline
     break_node = create_break_node(suite_node.children[1].start_pos)
     suite_node.children.insert(1, break_node)
 
@@ -593,25 +593,23 @@ def zero_loop_mutation_while(base_children, node, **_):
 def one_loop_mutation(base_children, node, **_):
     """
     One-run loop: Adds break statement at the end, so that always gets hit on first run (excluding early return)
-        keyword mutation handles replacing continues with break
-        We need to shallow copy not just children, but the suite 
-        this loop node is [for, x ... <PythonNode suite>]
-        Surviving Test Case: test with intended single run loop, eg for x in [0]
+    Keyword mutation will handle replacing continues with break
+
+    Surviving Test Case: test with intended single run loop, eg for x in [0]
     """
     children = copy.copy(base_children)
     suite_node = shallow_copy_loop_children(children)
 
-    # assume suite[0] is a newline
+    # start at 1, because 0th element of loop body is a newline
     indent_col = suite_node.children[1].start_pos[1]
     last_element = suite_node.get_last_leaf()
-    if last_element.type != 'newline':
-        # I'm assuming the last element will always be newline.
-        # If it isn't, how on earth is the next line written?
-        # Maybe an edge case at the very end of the file?
-        return None
-    # new break position is at next line, but keep the column indent
 
+    # The last element should always be a newline to the next block.
+    if last_element.type != 'newline':
+        return None
     line = last_element.end_pos[0]
+
+    # The new break's position uses the last element's line, with the first element's indent
     new_pos = (line, indent_col)
 
     break_node = create_break_node(new_pos)
@@ -620,8 +618,15 @@ def one_loop_mutation(base_children, node, **_):
     return pack_mutator_tuple(children, "loop_one_iteration")
 
 def shallow_copy_loop_children(children):
-    # helper function to properly copy the layers to the suite children
-    # returns reference to suite node
+    """
+    Helper function to properly copy the layers of the loop suite children
+
+    The children of a loop statement will look like this:
+        [for, x, ..., <PythonNode suite>]
+    The suite is the body of the loop at the next indentation level.
+    To avoid deepcopying all the nodes recursively, this shallow copies the children and the suite's children so we can make changes to the body of the loop and not copy the nodes in the loop itself.
+    Returns reference to suite node
+    """
     suite_index = locate_next_suite_or_stmt_index(children, 0)
 
     suite_node = copy.copy(children[suite_index])
@@ -633,10 +638,11 @@ def shallow_copy_loop_children(children):
     return suite_node
 
 def create_break_node(pos):
-    """ Creates a break node.
-        pos: (line, column)
+    """ 
+    Helper method to create break node.
+    This sets proper position, prefix, and newline.
+    Input: pos: tuple (line, column) for position of node
     """
-    # prefix needs to be added to the first element
     prefix = ' ' * pos[1]
     kw_node = Keyword(value='break', start_pos=pos, prefix=prefix)
     nl_node = Newline(value='\n', start_pos=kw_node.end_pos)
@@ -644,8 +650,13 @@ def create_break_node(pos):
     return break_node
 
 def list_comprehension_mutation(children, node, **_):
-    # for exprlist in or_test [comp_iter]
-    # find in, everything asfter that is the list
+    """
+    Mutate list comprehension by setting empty list:
+        [x for x in y] -> [x for x in []]
+    We find the `in` element and replace everything after it with []
+
+    Surviving test case: list is already empty
+    """
     children = children[:]
     list_idx = None
     for idx, child in enumerate(children):
@@ -662,9 +673,10 @@ def list_comprehension_mutation(children, node, **_):
                 break
     if not list_idx:
         return None
-    # assuming the list is of type Name
+
     empty_list = Name(value=' []', start_pos=children[list_idx].start_pos)
     children[list_idx] = empty_list
+
     return children[:list_idx+1]
 
 def create_pass_simple_stmt(pos):
