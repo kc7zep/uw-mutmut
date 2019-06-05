@@ -418,13 +418,13 @@ def subscript_mutation(node, children, **_):
 def subscript_mutation_a_b(children, slice_operator_index):
     mutations = {}
 
-    new_children = copy.deepcopy(children)
+    new_children = copy.copy(children)
     mutations["x[a:b] => x[a:]"] = pack_mutator_tuple(new_children[:slice_operator_index + 1], "x[a:b] => x[a:]")
 
-    new_children = copy.deepcopy(children)
+    new_children = copy.copy(children)
     mutations["x[a:b] => x[:b]"] = pack_mutator_tuple(new_children[slice_operator_index:], "x[a:b] => x[:b]")
 
-    new_children = copy.deepcopy(children)
+    new_children = copy.copy(children)
     mutations["x[a:b] => x[:]"] = pack_mutator_tuple(new_children[slice_operator_index:slice_operator_index + 1], "x[a:b] => x[:]")
 
     return mutations
@@ -433,12 +433,12 @@ def subscript_mutation_a_blank(children, slice_operator_index):
     mutations = {}
 
     # x[a:] => x[a:-1]
-    new_children = copy.deepcopy(children)
+    new_children = copy.copy(children)
     new_children = append_negative_1(new_children)
     mutations["x[a:] => x[a:-1]"] = pack_mutator_tuple(new_children, "x[a:] => x[a:-1]")
 
     # x[a:] => x[:]
-    new_children = copy.deepcopy(children)
+    new_children = copy.copy(children)
     mutations["x[a:] => x[:]"] = pack_mutator_tuple(new_children[slice_operator_index:], "x[a:] => x[:]")
 
     return mutations
@@ -447,12 +447,12 @@ def subscript_mutation_blank_b(children, slice_operator_index):
     mutations = {}
 
     # x[:b] => x[1:b]
-    new_children = copy.deepcopy(children)
+    new_children = copy.copy(children)
     new_children = prepend_1(new_children)
     mutations["x[:b] => x[1:b]"] = pack_mutator_tuple(new_children, "x[:b] => x[1:b]")
 
     # x[:b] => x[:]
-    new_children = copy.deepcopy(children)
+    new_children = copy.copy(children)
     mutations["x[:b] => x[:]"] = pack_mutator_tuple(new_children[:slice_operator_index + 1], "x[:b] => x[:]")
 
     return mutations
@@ -461,17 +461,17 @@ def subscript_mutation_blank_blank(children, slice_operator_index):
     mutations = {}
 
     # x[:] => x[1:]
-    new_children = copy.deepcopy(children)
+    new_children = copy.copy(children)
     new_children = prepend_1(new_children)
     mutations["x[:] => x[1:]"] = pack_mutator_tuple(new_children, "x[:] => x[1:]")
 
     # x[:] => x[:-1]
-    new_children = copy.deepcopy(children)
+    new_children = copy.copy(children)
     new_children = append_negative_1(new_children)
     mutations["x[:] => x[:-1]"] = pack_mutator_tuple(new_children, "x[:] => x[:-1]")
 
     # x[:] => x[1:-1]
-    new_children = copy.deepcopy(children)
+    new_children = copy.copy(children)
     new_children = prepend_1(new_children)
     new_children = append_negative_1(new_children)
     mutations["x[:] => x[1:-1]"] = pack_mutator_tuple(new_children, "x[:] => x[1:-1]")
